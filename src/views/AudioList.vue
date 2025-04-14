@@ -13,23 +13,20 @@
             <el-table :data="audios" border>
                 <el-table-column prop="id" label="ID" width="50" />
                 <el-table-column prop="title" label="标题">
-                    <template #default="{ row }">
-                        <el-link type="primary" @click="goToAudioDetail(row.id)">{{ row.title }}</el-link>
-                    </template>
                 </el-table-column>
                 <el-table-column prop="description" label="描述" />
-                <el-table-column prop="category" label="分类" />
+                <el-table-column prop="categoryId" label="分类" />
                 <el-table-column prop="duration" label="时长" width="80" />
                 <el-table-column prop="playCount" label="播放次数" width="100" />
                 <el-table-column label="封面" width="100">
                     <template #default="{ row }">
-                        <el-image v-if="row.coverUrl" :src="(row.coverUrl)" style="width: 50px; height: 50px"
+                        <el-image v-if="row.coverUrl" :src="row.coverUrl" style="width: 50px; height: 50px"
                             fit="cover" />
                     </template>
                 </el-table-column>
                 <el-table-column label="MP3" prop="mp3Url">
                     <template #default="{ row }">
-                        <el-button v-if="row.mp3Url" size="mini" @click="previewMp3File(row.mp3Url)">
+                        <el-button v-if="row.mp3Url" @click="previewMp3File(row.mp3Url)">
                             预览MP3
                         </el-button>
                         <span v-else>暂无文件</span>
@@ -37,8 +34,8 @@
                 </el-table-column>
                 <el-table-column label="操作" width="180">
                     <template #default="{ row }">
-                        <el-button type="primary" size="small" @click="openDialog(row)">编辑</el-button>
-                        <el-button type="danger" size="small" @click="deleteAudio(row.id)">删除</el-button>
+                        <el-button type="primary" @click="openDialog(row)">编辑</el-button>
+                        <el-button type="danger" @click="deleteAudio(row.id)">删除</el-button>
                     </template>
                 </el-table-column>
             </el-table>
@@ -54,7 +51,7 @@
                     <el-form-item label="封面">
                         <el-upload class="avatar-uploader" :show-file-list="false" :auto-upload="false"
                             :before-upload="beforeUpload" :on-change="handleImgFileChange">
-                            <el-image v-if="audio.coverUrl" :src="(audio.coverUrl)" style="width: 100px; height: 100px"
+                            <el-image v-if="audio.coverUrl" :src="audio.coverUrl" style="width: 100px; height: 100px"
                                 fit="cover" />
                             <el-button v-else type="primary">选择封面</el-button>
                         </el-upload>
@@ -70,7 +67,7 @@
                             </template>
                         </el-upload>
                         <div v-if="audio.mp3Url" style="margin-top: 10px;">
-                            <audio controls :src="audio.mp3Url" />
+                            <audio v-if="audio.mp3Url" controls :src="audio.mp3Url" style="margin-top: 10px;" />
                         </div>
                     </el-form-item>
                     <el-form-item label="分类">
@@ -91,6 +88,7 @@ import axios from "axios";
 import { ref, onMounted } from "vue";
 import { Plus } from '@element-plus/icons-vue';
 import { ElMessage } from 'element-plus';
+// import { id } from "element-plus/es/locale";
 const BASE_URL = process.env.VUE_APP_API_BASE_URL;
 
 export default {
@@ -103,6 +101,7 @@ export default {
             description: "",
             mp3Url: "",
             coverUrl: "",
+            coverColor: "",
             duration: 0,
             category: "",
             playCount: 0
@@ -110,74 +109,137 @@ export default {
         const dialogVisible = ref(false);
         const selectedImgFile = ref(null);
         const selectedMp3File = ref(null);
-
+        const hasNewCover = ref(false);
+        const hasNewMp3 = ref(false);
+        const imgFile = ref(null);
+        const mp3File = ref(null);
 
         const loadAudios = async () => {
             try {
-                const res = await axios.get("/audio/list");
-                audios.value = res.data;
+                const res = await axios.get(`${BASE_URL}/audio/list`);
+                audios.value = await Promise.all(res.data.map(async (audio) => {
+                    const newAudio = { ...audio };
+
+                    if (newAudio.coverUrl) {
+                        const imgUrl = `${BASE_URL}/api/media/image/${newAudio.coverUrl}`;
+                        newAudio.coverUrl = await getFileWithToken(imgUrl);
+                    }
+
+                    if (newAudio.mp3Url) {
+                        const mp3Url = `${BASE_URL}/api/media/mp3/${newAudio.mp3Url}`;
+                        newAudio.mp3Url = await getFileWithToken(mp3Url);
+                    }
+
+                    return newAudio;
+                }));
             } catch (error) {
                 console.error("加载音频失败:", error);
             }
         };
 
-        const openDialog = (row = null) => {
+        const openDialog = (row) => {
             if (row) {
+                // 编辑时保留原始URL
                 audio.value = { ...row };
-                if (row.coverUrl) {
-                    audio.value.coverUrl = `${row.coverUrl}`;
-                }
+                // 重置上传状态
+                hasNewCover.value = false;
+                hasNewMp3.value = false;
             } else {
-                audio.value = { id: null, title: "", description: "", mp3Url: "", coverUrl: "", duration: 0, category: "", playCount: 0 };
+                // 新增时重置状态
+                audio.value = {
+                    id: null,
+                    title: "",
+                    description: "",
+                    mp3Url: "",
+                    coverUrl: "",
+                    categoryId: "",
+                    duration: 0,
+                    playCount: 0
+                };
             }
             dialogVisible.value = true;
         };
 
         const saveAudio = async () => {
             try {
-                let coverUrl = audio.value.coverUrl;
+                let coverUrl = audio.value.coverUrl; // 默认使用当前封面 URL
+                let mp3Url = audio.value.mp3Url;     // 默认使用当前 MP3 URL
 
-                // 1. 如果有选中的文件，先上传封面
-                if (selectedImgFile.value) {
+                // 只有当用户选择了新封面时才上传
+                if (hasNewCover.value && imgFile.value) {
                     const formData = new FormData();
-                    formData.append("file", selectedImgFile.value);
-                    if (audio.value.id) formData.append("id", audio.value.id);
-
-                    const res = await axios.post(BASE_URL + "/upload/audioCover", formData);
-                    coverUrl = res.data.url;
-                }
-                let updatedAudio = { ...audio.value, coverUrl };
-
-                let mp3Url = audio.value.mp3Url;  // 使用 let 而不是 const
-                if (selectedMp3File.value) {
-                    const formData = new FormData();
-                    formData.append("file", selectedMp3File.value);
-
+                    formData.append("file", imgFile.value);
                     if (audio.value.id) {
                         formData.append("id", audio.value.id);
                     }
-
-                    const res = await axios.post(BASE_URL + "/upload/mp3", formData, {
-                        headers: { "Content-Type": "multipart/form-data" }
-                    });
-
-                    mp3Url = res.data.url;  // 这里应该更新为上传后的URL
+                    const res = await axios.post(
+                        BASE_URL + "/upload/audioCover",
+                        formData,
+                        {
+                            headers: { "Content-Type": "multipart/form-data" },
+                        }
+                    );
+                    coverUrl = res.data.url;
                 }
-                updatedAudio = { ...updatedAudio, mp3Url };  // 只更新 mp3Url，不覆盖 coverUrl
-                // 3. 根据是否有 id 选择 PUT（更新）还是 POST（新增）
+
+                // 只有当用户选择了新MP3时才上传
+                if (hasNewMp3.value && mp3File.value) {
+                    const formData = new FormData();
+                    formData.append("file", mp3File.value);
+                    if (audio.value.id) {
+                        formData.append("id", audio.value.id);
+                    }
+                    const res = await axios.post(
+                        BASE_URL + "/upload/mp3",
+                        formData,
+                        {
+                            headers: { "Content-Type": "multipart/form-data" },
+                        }
+                    );
+                    mp3Url = res.data.url;
+                }
+
+                // 构造提交数据
+                const audioData = {
+                    id: audio.value.id || null,
+                    title: audio.value.title,
+                    description: audio.value.description,
+                    category: audio.value.category,
+                    playCount: audio.value.playCount,
+                    duration: audio.value.duration,
+                };
+
+                // 如果用户更新了封面才添加 coverUrl
+                if (hasNewCover.value) {
+                    audioData.coverUrl = coverUrl;
+                }
+
+                // 如果用户更新了 MP3 才添加 mp3Url
+                if (hasNewMp3.value) {
+                    audioData.mp3Url = mp3Url;
+                }
+
+                // 区分新增和更新
                 if (audio.value.id) {
-                    await axios.put(`/audio/update/${audio.value.id}`, updatedAudio); // 这里 audio.value 改成 updatedAudio
+                    await axios.put(`${BASE_URL}/audio/update/${audio.value.id}`, audioData);
                 } else {
-                    await axios.post("/audio/add", updatedAudio);
+                    await axios.post(`${BASE_URL}/audio/add`, audioData);
                 }
 
-                // 4. 关闭弹窗并刷新列表
                 dialogVisible.value = false;
+                selectedImgFile.value = null;
+                selectedMp3File.value = null;
+                hasNewCover.value = false;
+                hasNewMp3.value = false;
+
                 loadAudios();
+                ElMessage.success("保存成功！");
             } catch (error) {
                 console.error("保存音频失败:", error);
+                ElMessage.error("保存失败！");
             }
         };
+
 
         const deleteAudio = async (id) => {
             try {
@@ -188,11 +250,16 @@ export default {
             }
         };
 
-
-        const handleImgFileChange = (file) => {
-            if (!file.raw) return;
-            selectedImgFile.value = file.raw;
-            audio.value.coverUrl = URL.createObjectURL(file.raw);  // 临时预览文件
+        // 修改图片处理
+        const handleImgFileChange = (uploadFile) => {
+            const isImage = uploadFile.raw.type.startsWith('image/');
+            if (!isImage) {
+                ElMessage.error('只能上传图片文件');
+                return;
+            }
+            hasNewCover.value = true;
+            imgFile.value = uploadFile.raw;
+            audio.value.coverUrl = URL.createObjectURL(uploadFile.raw);
         };
 
         const beforeUpload = (file) => {
@@ -206,8 +273,7 @@ export default {
         };
 
         const beforeMp3Upload = (file) => {
-            console.log(" file.type" + file.type);
-            const isMp3 = file.type === 'audio/mp3' || file.type === 'audio/mpeg'; // 允许 'audio/mpeg'
+            const isMp3 = file.type === 'audio/mp3' || file.type === 'audio/mpeg';
             const isLt10M = file.size / 1024 / 1024 < 10;
 
             if (!isMp3) {
@@ -220,27 +286,45 @@ export default {
             }
             return true;
         };
-        // 处理MP3选择
-        const handleMp3Change = (file) => {
-            if (!file.raw) return;
-            selectedMp3File.value = file.raw;
-            // 只在新增或更换MP3时才更新 mp3Url
-            audio.value.mp3Url = URL.createObjectURL(file.raw);
-            console.log("更新MP3 URL:", audio.value.mp3Url);
+
+        // 修改MP3处理
+        const handleMp3Change = (uploadFile) => {
+            const isAudio = uploadFile.raw.type.startsWith('audio/');
+            if (!isAudio) {
+                ElMessage.error('只能上传音频文件');
+                return;
+            }
+            hasNewMp3.value = true;
+            mp3File.value = uploadFile.raw;
+            audio.value.mp3Url = URL.createObjectURL(uploadFile.raw);
         };
-        // 预览MP3文件
+
         const previewMp3File = () => {
             if (audio.value.mp3Url) {
                 window.open(audio.value.mp3Url, '_blank');
             }
         };
-
+        const getFileWithToken = async (url) => {
+            try {
+                const res = await axios.get(url, {
+                    headers: {
+                        Authorization: `Bearer ${localStorage.getItem("jwtToken")}` // 替换为你实际存储 token 的位置
+                    },
+                    responseType: 'blob'
+                });
+                return URL.createObjectURL(res.data);
+            } catch (error) {
+                console.error('获取文件失败：', error);
+                return '';
+            }
+        };
         onMounted(loadAudios);
 
         return { audios, audio, dialogVisible, openDialog, saveAudio, deleteAudio, selectedImgFile, selectedMp3File, handleImgFileChange, beforeUpload, handleMp3Change, previewMp3File, beforeMp3Upload };
     },
 };
 </script>
+
 
 <style>
 .container {

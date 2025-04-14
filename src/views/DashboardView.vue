@@ -1,7 +1,7 @@
 <template>
     <div class="welcome-container">
         <div class="welcome-header">
-            <h1>欢迎使用 金书 管理系统</h1>
+            <h1>欢迎使用 得眠 管理系统</h1>
         </div>
 
         <div class="welcome-content">

@@ -1,20 +1,30 @@
 <template>
     <el-menu default-active="1" class="el-menu-vertical-demo" router>
         <!-- 首页 -->
-        <el-menu-item index="/" @click="handleMenuClick('/', '首页')">
+        <el-menu-item index="/dash" @click="handleMenuClick('/', '首页')">
             <el-icon>
                 <house />
             </el-icon>
             <span>首页</span>
         </el-menu-item>
 
-        <!-- 内容管理 -->
+        <!-- 音频管理 -->
         <el-menu-item index="/audio" @click="handleMenuClick('/audio', '音频管理')">
             <el-icon>
                 <Notebook />
             </el-icon>
-            <span>内容管理</span>
+            <span>音频管理</span>
         </el-menu-item>
+
+
+        <!-- 分类管理 -->
+        <el-menu-item index="/category" @click="handleMenuClick('/category', '分类管理')">
+            <el-icon>
+                <Notebook />
+            </el-icon>
+            <span>类别管理</span>
+        </el-menu-item>
+
 
         <!-- 用户管理 -->
         <el-menu-item index="/userManagement" @click="handleMenuClick('/userManagement', '用户管理')">
